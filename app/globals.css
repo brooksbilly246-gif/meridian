@@ -1,26 +1,52 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg-base: #08080f;
+  --bg-card: #0f0f1a;
+  --bg-card-hover: #141428;
+  --border: #1e1e3a;
+  --accent: #00d4ff;
+  --accent-dim: rgba(0, 212, 255, 0.12);
+  --green: #00ff88;
+  --red: #ff3366;
+  --yellow: #ffd700;
+  --text-primary: #e8e8f0;
+  --text-muted: #6b6b8a;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+* { box-sizing: border-box; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  margin: 0;
 }
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+.glass {
+  background: rgba(15, 15, 26, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+}
+
+.glow-accent { box-shadow: 0 0 30px rgba(0, 212, 255, 0.12); }
+.glow-green  { box-shadow: 0 0 30px rgba(0, 255, 136, 0.12); }
+.glow-red    { box-shadow: 0 0 30px rgba(255, 51, 102, 0.12); }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+@keyframes count-flash {
+  0% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.97); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.live-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
+.count-flash { animation: count-flash 1s ease-in-out; }
