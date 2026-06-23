@@ -17,7 +17,7 @@ type Settings = {
 
 const DEFAULTS: Settings = {
   paper_balance: "10000", imessage_target: "", webhook_secret: "",
-  risk_per_trade: "1", default_lot_size: "0.1",
+  risk_per_trade: "2", default_lot_size: "0.1",
   strategy_pairs: "EURUSD,GBPUSD",
   strategy_asian_start: "2", strategy_asian_end: "7",
   strategy_breakout_start: "8", strategy_breakout_end: "10", strategy_close_cutoff: "12",
@@ -100,7 +100,7 @@ export default function SettingsPage() {
       {/* Paper Trading */}
       <Section title="Paper Trading">
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Starting Balance (USD)" value={form.paper_balance} type="number" onChange={set("paper_balance")} />
+          <Field label="Starting Balance (AED)" value={form.paper_balance} type="number" onChange={set("paper_balance")} />
           <Field label="Risk per trade (%)" value={form.risk_per_trade} type="number" onChange={set("risk_per_trade")} />
         </div>
         <InfoBox>Position size is automatically calculated from your balance, risk %, entry, and stop loss distance.</InfoBox>

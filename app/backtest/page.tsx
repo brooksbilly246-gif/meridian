@@ -28,10 +28,10 @@ const DEFAULTS: BacktestParams = {
   pairs:              ["EURUSD", "GBPUSD"],
   dateFrom:           dates.from,
   dateTo:             dates.to,
-  startingBalanceAED: Math.round(10000 * AED_RATE),
+  startingBalanceAED: 10000,
   asianStart: 2, asianEnd: 7, breakoutStart: 8, breakoutEnd: 10, cutoffHour: 12,
   bufferPips: 2, tpMultiplier: 1.5, minRangePips: 15, maxRangePips: 50,
-  riskPct: 1, breakevenR: 1,
+  riskPct: 2, breakevenR: 1,
 };
 
 const ENGINE_KEYS: Record<string, string> = {

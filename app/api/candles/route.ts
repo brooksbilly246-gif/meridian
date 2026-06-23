@@ -1,21 +1,29 @@
-// Fetches OHLCV candle data from Yahoo Finance (no API key required).
-// Pair format: "EURUSD", "GBPUSD", etc. Yahoo appends "=X" for forex.
+// Candle data: serves IBKR bars when the bridge is running, falls back to Yahoo Finance.
+import { getIbkrCandles, hasIbkrCandles } from "@/lib/db";
+
 const TF_MAP: Record<string, { interval: string; range: string }> = {
   "1m":  { interval: "1m",  range: "1d"  },
   "5m":  { interval: "5m",  range: "5d"  },
   "15m": { interval: "15m", range: "5d"  },
   "1h":  { interval: "60m", range: "30d" },
-  "4h":  { interval: "1h",  range: "60d" }, // Yahoo has no 4h; use 1h and group on client
+  "4h":  { interval: "1h",  range: "60d" },
   "1d":  { interval: "1d",  range: "1y"  },
 };
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
+  const url  = new URL(req.url);
   const pair = (url.searchParams.get("pair") ?? "EURUSD").toUpperCase().replace("/", "");
   const tf   = url.searchParams.get("tf") ?? "1h";
-  const cfg  = TF_MAP[tf] ?? TF_MAP["1h"];
 
-  const symbol = `${pair}=X`;
+  // Prefer IBKR data when the bridge has populated it for this pair/tf
+  if (hasIbkrCandles(pair, tf)) {
+    const candles = getIbkrCandles(pair, tf);
+    return Response.json({ pair, tf, candles, source: "ibkr" });
+  }
+
+  // Fall back to Yahoo Finance
+  const cfg = TF_MAP[tf] ?? TF_MAP["1h"];
+  const symbol   = `${pair}=X`;
   const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=${cfg.interval}&range=${cfg.range}&includePrePost=false`;
 
   try {
@@ -39,7 +47,7 @@ export async function GET(req: Request) {
       }))
       .filter((c) => c.open != null && c.close != null);
 
-    return Response.json({ pair, tf, candles });
+    return Response.json({ pair, tf, candles, source: "yahoo" });
   } catch (e) {
     return Response.json({ error: String(e) }, { status: 500 });
   }

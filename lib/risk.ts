@@ -37,6 +37,7 @@
 import {
   getSetting, getStats, getOpenTrades, getOrCreateRiskState, stratLog
 } from "./db";
+import { AED_RATE } from "./currency";
 
 export type RiskCheck = { ok: boolean; reason?: string };
 
@@ -169,7 +170,7 @@ export function runRiskChecks(
 ): RiskCheck {
   const stats        = getStats();
   const balance      = parseFloat(stats.balance);
-  const startBalance = parseFloat(getSetting("paper_balance") || "10000");
+  const startBalance = parseFloat(getSetting("paper_balance") || "10000") / AED_RATE;
   const riskState    = getOrCreateRiskState(today);
 
   // 1. Circuit breaker: daily loss limit

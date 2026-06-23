@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import path from "path";
+import { AED_RATE } from "./currency";
 
 const DB_PATH = path.join(process.cwd(), "kairos.db");
 
@@ -106,13 +107,42 @@ function initSchema(db: Database.Database) {
       updated_at INTEGER DEFAULT (unixepoch()),
       UNIQUE(category, label)
     );
+
+    CREATE TABLE IF NOT EXISTS ibkr_candles (
+      pair TEXT NOT NULL,
+      tf TEXT NOT NULL,
+      time INTEGER NOT NULL,
+      open REAL NOT NULL,
+      high REAL NOT NULL,
+      low REAL NOT NULL,
+      close REAL NOT NULL,
+      volume REAL,
+      PRIMARY KEY (pair, tf, time)
+    );
+
+    CREATE TABLE IF NOT EXISTS ibkr_account (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      currency TEXT,
+      updated_at INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS ibkr_positions (
+      symbol TEXT PRIMARY KEY,
+      pair TEXT,
+      sec_type TEXT,
+      position REAL NOT NULL,
+      avg_cost REAL,
+      currency TEXT,
+      updated_at INTEGER DEFAULT (unixepoch())
+    );
   `);
 
   const defaults: Record<string, string> = {
     paper_balance:              "10000",
     imessage_target:            "",
     webhook_secret:             "",
-    risk_per_trade:             "1",
+    risk_per_trade:             "2",
     default_lot_size:           "0.1",
     strategy_enabled:           "false",
     strategy_pairs:             "EURUSD,GBPUSD",
@@ -213,7 +243,7 @@ export function getStats() {
   const totalPnl  = closed.reduce((s, t) => s + t.pnl, 0);
   const totalPips = closed.reduce((s, t) => s + t.pnl_pips, 0);
   const winRate = closed.length > 0 ? (wins / closed.length) * 100 : 0;
-  const balance = parseFloat(getSetting("paper_balance") || "10000") + totalPnl;
+  const balance = parseFloat(getSetting("paper_balance") || "10000") / AED_RATE + totalPnl;
   return {
     balance: balance.toFixed(2),
     totalPnl: totalPnl.toFixed(2),
@@ -332,3 +362,30 @@ export type RiskState = {
 export type StrategyLogEntry = {
   id: number; level: string; message: string; pair: string | null; created_at: number;
 };
+
+// ─── IBKR Data ────────────────────────────────────────────────────────────────
+export type IbkrCandle = { time: number; open: number; high: number; low: number; close: number; volume: number | null };
+export type IbkrPosition = { symbol: string; pair: string | null; sec_type: string; position: number; avg_cost: number | null; currency: string | null; updated_at: number };
+export type IbkrAccountRow = { key: string; value: string | null; currency: string | null };
+
+export function getIbkrCandles(pair: string, tf: string, limit = 750): IbkrCandle[] {
+  return getDb().prepare(
+    `SELECT time, open, high, low, close, volume FROM ibkr_candles
+     WHERE pair = ? AND tf = ? ORDER BY time ASC LIMIT ?`
+  ).all(pair, tf, limit) as IbkrCandle[];
+}
+
+export function getIbkrAccount(): IbkrAccountRow[] {
+  return getDb().prepare("SELECT key, value, currency FROM ibkr_account").all() as IbkrAccountRow[];
+}
+
+export function getIbkrPositions(): IbkrPosition[] {
+  return getDb().prepare("SELECT * FROM ibkr_positions ORDER BY symbol").all() as IbkrPosition[];
+}
+
+export function hasIbkrCandles(pair: string, tf: string): boolean {
+  const row = getDb().prepare(
+    "SELECT 1 FROM ibkr_candles WHERE pair = ? AND tf = ? LIMIT 1"
+  ).get(pair, tf);
+  return row != null;
+}

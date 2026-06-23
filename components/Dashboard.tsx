@@ -12,6 +12,7 @@ import {
   ArrowDownRight,
   Shield,
   Crosshair,
+  Building2,
 } from "lucide-react";
 import { formatAED } from "@/lib/currency";
 import {
@@ -48,6 +49,16 @@ type Trade = {
 };
 
 type PnlPoint = { time: string; pnl: number };
+
+type IbkrAccountRow = { value: string | null; currency: string | null };
+type IbkrPosition = {
+  symbol: string; pair: string | null; sec_type: string;
+  position: number; avg_cost: number | null; currency: string | null; updated_at: number;
+};
+type IbkrData = {
+  account: Record<string, IbkrAccountRow>;
+  positions: IbkrPosition[];
+};
 
 const PAIRS = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD"];
 
@@ -86,18 +97,21 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [pnlHistory, setPnlHistory] = useState<PnlPoint[]>([]);
   const [openTrades, setOpenTrades] = useState<Trade[]>([]);
+  const [ibkr, setIbkr] = useState<IbkrData | null>(null);
   const [prices, setPrices] = useState(mockPrices);
   const [prevPrices, setPrevPrices] = useState(mockPrices);
   const now = useTime();
 
   async function fetchData() {
-    const [s, t] = await Promise.all([
+    const [s, t, ib] = await Promise.all([
       fetch("/api/stats").then((r) => r.json()),
       fetch("/api/trades?type=open").then((r) => r.json()),
+      fetch("/api/ibkr").then((r) => r.json()).catch(() => null),
     ]);
     setStats(s.stats);
     setPnlHistory(s.pnlHistory);
     setOpenTrades(t);
+    if (ib && !ib.error) setIbkr(ib);
   }
 
   useEffect(() => {
@@ -285,6 +299,9 @@ export default function Dashboard() {
           accent="var(--accent)"
         />
       </div>
+
+      {/* IBKR Panel */}
+      <IbkrPanel data={ibkr} />
 
       {/* Charts row */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
@@ -709,6 +726,171 @@ function PriceRow({
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function IbkrPanel({ data }: { data: IbkrData | null }) {
+  const acc = data?.account ?? {};
+  const positions = data?.positions ?? [];
+  const hasData = Object.keys(acc).length > 0;
+
+  const val = (key: string) => parseFloat(acc[key]?.value ?? "0");
+  const netLiq    = val("NetLiquidation");
+  const cash      = val("TotalCashValue");
+  const buyPower  = val("BuyingPower");
+  const unrealPnl = val("UnrealizedPnL");
+
+  const lastUpdated = positions[0]?.updated_at ?? 0;
+  const isStale = hasData && lastUpdated > 0 && (Date.now() / 1000 - lastUpdated) > 120;
+  const statusColor = !hasData ? "var(--border)" : isStale ? "var(--yellow)" : "var(--green)";
+  const statusLabel = !hasData ? "Not connected" : isStale ? "Stale" : "Live";
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Building2 size={14} style={{ color: "var(--text-muted)" }} />
+          <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
+            IBKR Paper Account
+          </span>
+          <div
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-widest uppercase"
+            style={{
+              color: statusColor,
+              background: `color-mix(in srgb, ${statusColor} 10%, transparent)`,
+              border: `1px solid color-mix(in srgb, ${statusColor} 20%, transparent)`,
+            }}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${hasData && !isStale ? "live-dot" : ""}`}
+              style={{ background: statusColor }}
+            />
+            {statusLabel}
+          </div>
+        </div>
+        <span className="text-[10px] tracking-wider uppercase" style={{ color: "var(--text-muted)" }}>
+          Interactive Brokers
+        </span>
+      </div>
+
+      {hasData ? (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            <AcctMetric label="Net Liquidation" value={formatAED(netLiq)} />
+            <AcctMetric label="Cash" value={formatAED(cash)} />
+            <AcctMetric label="Buying Power" value={formatAED(buyPower)} />
+            <AcctMetric
+              label="Unrealized P&L"
+              value={formatAED(unrealPnl, { sign: true })}
+              positive={unrealPnl >= 0}
+            />
+          </div>
+
+          {positions.length > 0 ? (
+            <div className="space-y-2">
+              <span className="text-[10px] font-semibold tracking-widest uppercase" style={{ color: "var(--text-muted)" }}>
+                Positions
+              </span>
+              {positions.map((pos) => (
+                <IbkrPositionRow key={pos.symbol} pos={pos} />
+              ))}
+            </div>
+          ) : (
+            <div className="py-4 text-center text-[10px]" style={{ color: "var(--text-muted)" }}>
+              No open positions
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="py-8 flex flex-col items-center gap-2">
+          <Activity size={16} style={{ color: "var(--text-muted)", opacity: 0.3 }} />
+          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Bridge not running
+          </span>
+          <span className="text-[10px]" style={{ color: "var(--border)" }}>
+            Run{" "}
+            <code
+              className="px-1.5 py-0.5 rounded text-[10px]"
+              style={{ background: "var(--bg-surface)", color: "var(--accent)" }}
+            >
+              npm run ibkr-bridge
+            </code>{" "}
+            in a second terminal
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AcctMetric({
+  label,
+  value,
+  positive,
+}: {
+  label: string;
+  value: string;
+  positive?: boolean;
+}) {
+  const color =
+    positive === undefined
+      ? "var(--text-primary)"
+      : positive
+      ? "var(--green)"
+      : "var(--red)";
+
+  return (
+    <div
+      className="rounded-xl px-3 py-2.5"
+      style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}
+    >
+      <div className="text-[9px] font-semibold tracking-widest uppercase mb-1" style={{ color: "var(--text-muted)" }}>
+        {label}
+      </div>
+      <div className="text-[13px] font-bold tabular-nums" style={{ color, fontFamily: "var(--font-data)" }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function IbkrPositionRow({ pos }: { pos: IbkrPosition }) {
+  const isLong = pos.position > 0;
+  const label  = pos.pair ?? pos.symbol;
+  const qty    = Math.abs(pos.position).toLocaleString();
+  const isJpy  = label.includes("JPY");
+  const cost   = pos.avg_cost != null ? pos.avg_cost.toFixed(isJpy ? 3 : 5) : null;
+
+  return (
+    <div
+      className="flex items-center justify-between py-2 px-3 rounded-lg"
+      style={{
+        background: "var(--bg-surface)",
+        border: `1px solid ${isLong ? "rgba(16,185,129,0.08)" : "rgba(244,63,94,0.08)"}`,
+      }}
+    >
+      <div className="flex items-center gap-2.5">
+        <span
+          className="text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider"
+          style={{
+            background: isLong ? "var(--green-dim)" : "var(--red-dim)",
+            color: isLong ? "var(--green)" : "var(--red)",
+          }}
+        >
+          {isLong ? "Long" : "Short"}
+        </span>
+        <span className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>
+          {label}
+        </span>
+      </div>
+      <div
+        className="flex items-center gap-4 text-[11px] tabular-nums"
+        style={{ fontFamily: "var(--font-data)", color: "var(--text-muted)" }}
+      >
+        <span>{qty}</span>
+        {cost && <span style={{ color: "var(--text-secondary)" }}>@ {cost}</span>}
       </div>
     </div>
   );
