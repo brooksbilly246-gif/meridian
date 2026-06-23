@@ -52,7 +52,7 @@ function log(msg: string) {
 }
 
 // ─── DB (opened once; tables created idempotently) ───────────────────────────
-const DB_PATH = path.join(process.cwd(), "kairos.db");
+const DB_PATH = path.join(process.cwd(), "meridian.db");
 let _db: Database.Database | null = null;
 
 function getDb(): Database.Database {
