@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import { AED_RATE } from "./currency";
 
-const DB_PATH = path.join(process.cwd(), "kairos.db");
+const DB_PATH = path.join(process.cwd(), "meridian.db");
 
 let db: Database.Database;
 
@@ -135,6 +135,20 @@ function initSchema(db: Database.Database) {
       avg_cost REAL,
       currency TEXT,
       updated_at INTEGER DEFAULT (unixepoch())
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS setting_changes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      insight_category TEXT NOT NULL,
+      insight_label TEXT NOT NULL,
+      setting_key TEXT NOT NULL,
+      old_value TEXT NOT NULL,
+      new_value TEXT NOT NULL,
+      reason TEXT,
+      reverted INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
   `);
 
@@ -346,6 +360,48 @@ export function getClosedTradesWithSession() {
       ON s.pair = t.pair AND s.session_date = date(t.open_time, 'unixepoch')
     WHERE t.status = 'CLOSED' AND t.signal_source = 'LONDON_BREAKOUT'
   `).all() as { pair: string; direction: string; pnl: number; pnl_pips: number; open_time: number; range_pips: number | null }[];
+}
+
+// ─── Setting Changes (suggestion history) ────────────────────────────────
+export type SettingChange = {
+  id: number; insight_category: string; insight_label: string;
+  setting_key: string; old_value: string; new_value: string;
+  reason: string | null; reverted: number; created_at: number;
+};
+
+export function applyInsightSuggestion(
+  category: string, label: string, key: string, newValue: string, reason: string | null
+): SettingChange {
+  const db = getDb();
+  const oldValue = getSetting(key);
+  db.prepare(`
+    INSERT INTO setting_changes (insight_category, insight_label, setting_key, old_value, new_value, reason)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(category, label, key, oldValue, newValue, reason);
+  setSetting(key, newValue);
+  const row = db.prepare("SELECT * FROM setting_changes ORDER BY id DESC LIMIT 1").get() as SettingChange;
+  return row;
+}
+
+export function revertSettingChange(id: number): boolean {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM setting_changes WHERE id = ? AND reverted = 0").get(id) as SettingChange | undefined;
+  if (!row) return false;
+  setSetting(row.setting_key, row.old_value);
+  db.prepare("UPDATE setting_changes SET reverted = 1 WHERE id = ?").run(id);
+  return true;
+}
+
+export function getSettingChanges(): SettingChange[] {
+  return getDb().prepare(
+    "SELECT * FROM setting_changes ORDER BY created_at DESC"
+  ).all() as SettingChange[];
+}
+
+export function getActiveSettingChanges(): SettingChange[] {
+  return getDb().prepare(
+    "SELECT * FROM setting_changes WHERE reverted = 0 ORDER BY created_at DESC"
+  ).all() as SettingChange[];
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────

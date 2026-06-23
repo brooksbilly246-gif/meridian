@@ -129,7 +129,7 @@ async function checkBreakout(
 
   const stats   = getStats();
   const balance = parseFloat(stats.balance);
-  const startBal = parseFloat(getSetting("paper_balance") || "10000");
+  const startBal = parseFloat(getSetting("paper_balance") || "10000") / 3.6725;
 
   for (const c of breakoutCandles) {
     let direction: "LONG" | "SHORT" | null = null;

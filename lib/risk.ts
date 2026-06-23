@@ -1,5 +1,5 @@
 /**
- * KAIROS FX — Risk Management Module
+ * Meridian — Risk Management Module
  *
  * Loss-minimisation principles implemented here:
  *

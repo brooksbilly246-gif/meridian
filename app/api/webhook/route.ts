@@ -56,5 +56,5 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  return Response.json({ status: "KAIROS FX webhook active" });
+  return Response.json({ status: "Meridian webhook active" });
 }

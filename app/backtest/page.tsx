@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { formatAED, AED_RATE } from "@/lib/currency";
-import { Play, Loader2, Zap, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
+import { Play, Loader2, Zap, CheckCircle2, ChevronDown, ChevronUp, Lightbulb, AlertTriangle, TrendingUp, Check } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
   ResponsiveContainer, ReferenceLine,
@@ -48,6 +48,108 @@ const ENGINE_KEYS: Record<string, string> = {
   cutoffHour:    "strategy_close_cutoff",
 };
 
+type BtInsight = {
+  category: string; label: string;
+  trades: number; wins: number; losses: number;
+  win_rate: number; avg_pips: number; net_pnl: number;
+  rating: string;
+  suggestion_key: string | null; suggestion_value: string | null; suggestion_reason: string | null;
+};
+
+function rateWinRate(wins: number, total: number): string {
+  if (total < 3) return "INSUFFICIENT";
+  const wr = wins / total;
+  if (wr >= 0.55 && total >= 5) return "STRONG_EDGE";
+  if (wr >= 0.40) return "OK";
+  return "AVOID";
+}
+
+function computeBacktestInsights(trades: BtTrade[], params: BacktestParams): BtInsight[] {
+  const insights: BtInsight[] = [];
+  if (!trades.length) return insights;
+
+  const agg = (subset: BtTrade[]) => {
+    const w = subset.filter((t) => t.pnl > 0).length;
+    return {
+      trades: subset.length, wins: w, losses: subset.length - w,
+      win_rate: subset.length > 0 ? w / subset.length : 0,
+      avg_pips: subset.length > 0 ? subset.reduce((s, t) => s + t.pips, 0) / subset.length : 0,
+      net_pnl: subset.reduce((s, t) => s + t.pnl, 0),
+    };
+  };
+
+  const DAY_NAMES: Record<number, string> = { 1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday" };
+  for (const [dowStr, name] of Object.entries(DAY_NAMES)) {
+    const dow = parseInt(dowStr);
+    const subset = trades.filter((t) => new Date(t.date + "T12:00:00Z").getUTCDay() === dow);
+    if (!subset.length) continue;
+    const s = agg(subset);
+    const rating = rateWinRate(s.wins, s.trades);
+    let suggestion_key = null, suggestion_value = null, suggestion_reason = null;
+    if (rating === "AVOID") {
+      suggestion_key = "strategy_allowed_days";
+      const currentDays = [1, 2, 3, 4].filter((d) => d !== dow);
+      suggestion_value = currentDays.join(",");
+      suggestion_reason = `${name}: ${s.wins}W/${s.losses}L (${(s.win_rate * 100).toFixed(0)}%) in backtest — consider removing from schedule`;
+    }
+    insights.push({ category: "day_of_week", label: name, ...s, rating, suggestion_key, suggestion_value, suggestion_reason });
+  }
+
+  const BUCKETS = [
+    { label: "15-20 pips", min: 15, max: 20, tightKey: "strategy_min_range_pips", tightVal: "20" },
+    { label: "20-30 pips", min: 20, max: 30 },
+    { label: "30-40 pips", min: 30, max: 40 },
+    { label: "40-50 pips", min: 40, max: 50, wideKey: "strategy_max_range_pips", wideVal: "40" },
+  ] as { label: string; min: number; max: number; tightKey?: string; tightVal?: string; wideKey?: string; wideVal?: string }[];
+  for (const b of BUCKETS) {
+    const subset = trades.filter((t) => t.rangePips >= b.min && t.rangePips < b.max);
+    if (!subset.length) continue;
+    const s = agg(subset);
+    const rating = rateWinRate(s.wins, s.trades);
+    let suggestion_key = null, suggestion_value = null, suggestion_reason = null;
+    if (rating === "AVOID") {
+      if (b.tightKey) {
+        suggestion_key = b.tightKey; suggestion_value = b.tightVal!;
+        suggestion_reason = `${b.label}: ${s.wins}W/${s.losses}L (${(s.win_rate * 100).toFixed(0)}%) in backtest — raising min range removes this bucket`;
+      } else if (b.wideKey) {
+        suggestion_key = b.wideKey; suggestion_value = b.wideVal!;
+        suggestion_reason = `${b.label}: ${s.wins}W/${s.losses}L (${(s.win_rate * 100).toFixed(0)}%) in backtest — lowering max range removes this bucket`;
+      }
+    }
+    insights.push({ category: "range_bucket", label: b.label, ...s, rating, suggestion_key, suggestion_value, suggestion_reason });
+  }
+
+  for (const dir of ["LONG", "SHORT"] as const) {
+    const subset = trades.filter((t) => t.direction === dir);
+    if (!subset.length) continue;
+    const s = agg(subset);
+    const rating = rateWinRate(s.wins, s.trades);
+    let suggestion_key = null, suggestion_value = null, suggestion_reason = null;
+    if (rating === "AVOID" && dir === "SHORT") {
+      suggestion_key = "strategy_trend_filter";
+      suggestion_value = "true";
+      suggestion_reason = `SHORT: ${s.wins}W/${s.losses}L (${(s.win_rate * 100).toFixed(0)}%) in backtest — trend filter blocks counter-trend entries`;
+    }
+    insights.push({ category: "direction", label: dir, ...s, rating, suggestion_key, suggestion_value, suggestion_reason });
+  }
+
+  for (const pair of params.pairs) {
+    const subset = trades.filter((t) => t.pair === pair);
+    if (!subset.length) continue;
+    const s = agg(subset);
+    const rating = rateWinRate(s.wins, s.trades);
+    let suggestion_key = null, suggestion_value = null, suggestion_reason = null;
+    if (rating === "AVOID" && params.pairs.length > 1) {
+      suggestion_key = "strategy_pairs";
+      suggestion_value = params.pairs.filter((p) => p !== pair).join(",");
+      suggestion_reason = `${pair}: ${s.wins}W/${s.losses}L (${(s.win_rate * 100).toFixed(0)}%) in backtest — consider removing from active pairs`;
+    }
+    insights.push({ category: "pair", label: pair, ...s, rating, suggestion_key, suggestion_value, suggestion_reason });
+  }
+
+  return insights;
+}
+
 type ResultData = {
   byPair:             PairResult[];
   portfolio:          { summary: PortfolioSummary; equityCurve: { date: string; balance: number }[]; allTrades: BtTrade[] };
@@ -64,6 +166,8 @@ export default function BacktestPage() {
   const [applied, setApplied]       = useState(false);
   const [logOpen, setLogOpen]       = useState(false);
   const [activePair, setActivePair] = useState<string | null>(null);
+  const [insights, setInsights]     = useState<BtInsight[]>([]);
+  const [appliedSuggestions, setAppliedSuggestions] = useState<Set<string>>(new Set());
 
   function setNum(key: keyof BacktestParams) {
     return (v: string) => {
@@ -87,6 +191,7 @@ export default function BacktestPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Backtest failed");
       setResult(data);
+      setInsights(computeBacktestInsights(data.portfolio.allTrades, params));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -318,6 +423,94 @@ export default function BacktestPage() {
             </div>
           )}
 
+          {/* Suggestions from insights */}
+          {insights.length > 0 && (
+            <div className="glass rounded-2xl p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Lightbulb size={16} style={{ color: "var(--yellow)" }} />
+                <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Suggestions</div>
+                <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(255,215,0,0.1)", color: "var(--yellow)" }}>
+                  Based on trade history
+                </span>
+              </div>
+              <div className="space-y-2">
+                {insights.filter((i) => i.suggestion_key).map((insight) => {
+                  const suggKey = `${insight.category}:${insight.label}`;
+                  const isApplied = appliedSuggestions.has(suggKey);
+                  return (
+                    <div key={suggKey} className="flex items-start gap-3 p-3 rounded-xl" style={{
+                      background: insight.rating === "AVOID" ? "rgba(255,51,102,0.04)" : "rgba(0,255,136,0.04)",
+                      border: `1px solid ${insight.rating === "AVOID" ? "rgba(255,51,102,0.15)" : "rgba(0,255,136,0.15)"}`,
+                    }}>
+                      {insight.rating === "AVOID"
+                        ? <AlertTriangle size={14} className="shrink-0 mt-0.5" style={{ color: "var(--red)" }} />
+                        : <TrendingUp size={14} className="shrink-0 mt-0.5" style={{ color: "var(--green)" }} />
+                      }
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold" style={{ color: "var(--text-primary)" }}>
+                            {insight.category === "day_of_week" ? `${insight.label}` : insight.label}
+                          </span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{
+                            background: insight.rating === "AVOID" ? "rgba(255,51,102,0.15)" : "rgba(0,255,136,0.15)",
+                            color: insight.rating === "AVOID" ? "var(--red)" : "var(--green)",
+                          }}>{insight.rating}</span>
+                          <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                            {insight.wins}W / {insight.losses}L ({(insight.win_rate * 100).toFixed(0)}%)
+                          </span>
+                        </div>
+                        <div className="text-xs mt-1 leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                          {insight.suggestion_reason}
+                        </div>
+                      </div>
+                      <button
+                        disabled={isApplied}
+                        onClick={async () => {
+                          await fetch("/api/insights/apply", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              category: insight.category,
+                              label: insight.label,
+                              key: insight.suggestion_key,
+                              value: insight.suggestion_value,
+                              reason: insight.suggestion_reason,
+                            }),
+                          });
+                          setAppliedSuggestions((s) => new Set(s).add(suggKey));
+                        }}
+                        className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
+                        style={{
+                          background: isApplied ? "rgba(0,255,136,0.12)" : "rgba(0,212,255,0.1)",
+                          border: `1px solid ${isApplied ? "rgba(0,255,136,0.4)" : "rgba(0,212,255,0.3)"}`,
+                          color: isApplied ? "var(--green)" : "var(--accent)",
+                          opacity: isApplied ? 0.7 : 1,
+                        }}
+                      >
+                        {isApplied ? <><Check size={12} /> Applied</> : "Apply"}
+                      </button>
+                    </div>
+                  );
+                })}
+                {insights.filter((i) => !i.suggestion_key).length > 0 && (
+                  <div className="pt-2 border-t" style={{ borderColor: "var(--border)" }}>
+                    <div className="text-[10px] uppercase tracking-wide mb-2" style={{ color: "var(--text-muted)" }}>Performance by category</div>
+                    <div className="flex flex-wrap gap-2">
+                      {insights.filter((i) => !i.suggestion_key).map((i) => (
+                        <div key={`${i.category}:${i.label}`} className="px-2.5 py-1.5 rounded-lg text-[11px]" style={{
+                          background: ratingBg(i.rating), border: `1px solid ${ratingBorder(i.rating)}`, color: ratingColor(i.rating),
+                        }}>
+                          <span className="font-bold">{i.label}</span>
+                          <span className="ml-1.5 opacity-70">{i.wins}W/{i.losses}L · {(i.win_rate * 100).toFixed(0)}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Equity curve */}
           <div className="glass rounded-2xl p-5">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -416,6 +609,27 @@ export default function BacktestPage() {
       )}
     </div>
   );
+}
+
+// ─── Rating helpers ──────────────────────────────────────────────────────────
+
+function ratingColor(r: string) {
+  if (r === "STRONG_EDGE") return "var(--green)";
+  if (r === "OK") return "var(--accent)";
+  if (r === "AVOID") return "var(--red)";
+  return "var(--text-muted)";
+}
+function ratingBg(r: string) {
+  if (r === "STRONG_EDGE") return "rgba(0,255,136,0.08)";
+  if (r === "OK") return "rgba(0,212,255,0.06)";
+  if (r === "AVOID") return "rgba(255,51,102,0.08)";
+  return "rgba(255,255,255,0.03)";
+}
+function ratingBorder(r: string) {
+  if (r === "STRONG_EDGE") return "rgba(0,255,136,0.2)";
+  if (r === "OK") return "rgba(0,212,255,0.15)";
+  if (r === "AVOID") return "rgba(255,51,102,0.2)";
+  return "var(--border)";
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────

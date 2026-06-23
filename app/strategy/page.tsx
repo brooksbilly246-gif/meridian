@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { formatAED } from "@/lib/currency";
-import { Activity, Shield, AlertTriangle, CheckCircle, Clock, TrendingUp, TrendingDown, Zap } from "lucide-react";
+import { Activity, Shield, AlertTriangle, CheckCircle, Clock, TrendingUp, TrendingDown, Zap, History, Undo2, Loader2 } from "lucide-react";
 
 type Session = {
   pair: string; session_date: string;
@@ -13,6 +13,11 @@ type RiskState = {
   consecutive_losses: number; circuit_broken: number;
 };
 type LogEntry = { id: number; level: string; message: string; pair: string | null; created_at: number };
+type SettingChange = {
+  id: number; insight_category: string; insight_label: string;
+  setting_key: string; old_value: string; new_value: string;
+  reason: string | null; reverted: number; created_at: number;
+};
 type State = {
   today: string; enabled: boolean; pairs: string[];
   sessions: Session[]; riskState: RiskState; log: LogEntry[];
@@ -32,6 +37,13 @@ export default function StrategyPage() {
   const [lastTick, setLastTick] = useState<string | null>(null);
   const [nextTick, setNextTick] = useState(60);
   const [phase, setPhase] = useState<string>("—");
+  const [changes, setChanges] = useState<SettingChange[]>([]);
+  const [reverting, setReverting] = useState<number | null>(null);
+
+  const fetchChanges = useCallback(async () => {
+    const d = await fetch("/api/insights/history").then((r) => r.json());
+    setChanges(d.changes ?? []);
+  }, []);
 
   const fetchState = useCallback(async () => {
     const d = await fetch("/api/strategy/state").then((r) => r.json());
@@ -54,9 +66,10 @@ export default function StrategyPage() {
   // Auto-tick every 60s when strategy enabled
   useEffect(() => {
     fetchState();
+    fetchChanges();
     const stateInterval = setInterval(fetchState, 10000);
     return () => clearInterval(stateInterval);
-  }, [fetchState]);
+  }, [fetchState, fetchChanges]);
 
   useEffect(() => {
     if (!state?.enabled) return;
@@ -188,6 +201,90 @@ export default function StrategyPage() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Applied Modifications */}
+      <div className="glass rounded-2xl p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <History size={15} style={{ color: "var(--accent)" }} />
+          <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Applied Modifications</div>
+          {changes.filter((c) => !c.reverted).length > 0 && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold" style={{ background: "rgba(0,212,255,0.1)", color: "var(--accent)" }}>
+              {changes.filter((c) => !c.reverted).length} active
+            </span>
+          )}
+        </div>
+        {!changes.length ? (
+          <Empty label="No suggestions have been applied yet — run a backtest to see suggestions" />
+        ) : (
+          <div className="space-y-2">
+            {changes.map((c) => (
+              <div key={c.id} className="flex items-start gap-3 p-3 rounded-xl" style={{
+                background: c.reverted ? "rgba(255,255,255,0.02)" : "rgba(0,212,255,0.04)",
+                border: `1px solid ${c.reverted ? "var(--border)" : "rgba(0,212,255,0.15)"}`,
+                opacity: c.reverted ? 0.5 : 1,
+              }}>
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{
+                  background: c.reverted ? "rgba(255,255,255,0.04)" : "rgba(0,212,255,0.1)",
+                  color: c.reverted ? "var(--text-muted)" : "var(--accent)",
+                }}>
+                  {c.reverted ? <Undo2 size={13} /> : <CheckCircle size={13} />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold" style={{ color: c.reverted ? "var(--text-muted)" : "var(--text-primary)" }}>
+                      {c.insight_label}
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{
+                      background: "rgba(255,255,255,0.06)", color: "var(--text-muted)",
+                    }}>
+                      {c.insight_category.replace(/_/g, " ")}
+                    </span>
+                    {c.reverted ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-bold" style={{ background: "rgba(255,215,0,0.1)", color: "var(--yellow)" }}>
+                        REVERTED
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                    <span className="font-mono">{c.setting_key}</span>: <span style={{ color: "var(--red)" }}>{c.old_value}</span> → <span style={{ color: "var(--green)" }}>{c.new_value}</span>
+                  </div>
+                  {c.reason && (
+                    <div className="text-[11px] mt-1 leading-relaxed" style={{ color: "var(--text-muted)" }}>{c.reason}</div>
+                  )}
+                  <div className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                    {new Date(c.created_at * 1000).toLocaleDateString()} {new Date(c.created_at * 1000).toLocaleTimeString()}
+                  </div>
+                </div>
+                {!c.reverted && (
+                  <button
+                    disabled={reverting === c.id}
+                    onClick={async () => {
+                      setReverting(c.id);
+                      await fetch("/api/insights/revert", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ id: c.id }),
+                      });
+                      await fetchChanges();
+                      await fetchState();
+                      setReverting(null);
+                    }}
+                    className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all hover:opacity-90 active:scale-95"
+                    style={{
+                      background: "rgba(255,215,0,0.08)",
+                      border: "1px solid rgba(255,215,0,0.25)",
+                      color: "var(--yellow)",
+                    }}
+                  >
+                    {reverting === c.id ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />}
+                    Undo
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Strategy log */}

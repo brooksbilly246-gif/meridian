@@ -19,11 +19,11 @@ export function notifySetup(signal: {
   window: "15m" | "5m" | "1m";
 }) {
   const emoji = signal.direction === "LONG" ? "📈" : "📉";
-  const msg = `${emoji} KAIROS FX ALERT\n${signal.pair} ${signal.direction} setup in ${signal.window}\nEntry: ${signal.entry_price ?? "TBD"}`;
+  const msg = `${emoji} Meridian ALERT\n${signal.pair} ${signal.direction} setup in ${signal.window}\nEntry: ${signal.entry_price ?? "TBD"}`;
   sendIMessage(msg);
 
   if (typeof Notification !== "undefined") {
-    new Notification(`KAIROS FX — ${signal.pair} ${signal.direction}`, {
+    new Notification(`Meridian — ${signal.pair} ${signal.direction}`, {
       body: `Setup approaching in ${signal.window}`,
     });
   }

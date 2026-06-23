@@ -156,9 +156,9 @@ export async function GET() {
 
   // ── 8. Database: strategy log ────────────────────────────────────────────────
   results.push(test("DB: write and read strategy log", () => {
-    stratLog("INFO", "TEST_ENTRY_KAIROS_FX", "EURUSD");
+    stratLog("INFO", "TEST_ENTRY_MERIDIAN", "EURUSD");
     const log = getStrategyLog(5);
-    const found = log.some((e) => e.message === "TEST_ENTRY_KAIROS_FX");
+    const found = log.some((e) => e.message === "TEST_ENTRY_MERIDIAN");
     return { ok: found, detail: found ? "log entry found" : "log entry missing" };
   }));
 
