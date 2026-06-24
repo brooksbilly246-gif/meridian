@@ -222,3 +222,11 @@ body {
   .pulse-ring::after { animation: none; }
   .price-tick { animation: none; }
 }
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  body {
+    -webkit-tap-highlight-color: transparent;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}

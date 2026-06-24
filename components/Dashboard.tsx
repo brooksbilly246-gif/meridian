@@ -141,6 +141,16 @@ export default function Dashboard() {
   const winRate = parseFloat(stats?.winRate ?? "0");
   const activeSessions = getActiveSessions(now.getUTCHours());
 
+  const unrealizedPnl = openTrades.reduce((sum, t) => {
+    const pairKey = t.pair.length === 6 ? t.pair.slice(0, 3) + "/" + t.pair.slice(3) : t.pair;
+    const cp = prices[pairKey] ?? t.entry_price;
+    const isLong = t.direction === "LONG";
+    const diff = isLong ? cp - t.entry_price : t.entry_price - cp;
+    return sum + diff;
+  }, 0);
+  const liveEquity = balance + unrealizedPnl;
+  const unrealizedPositive = unrealizedPnl >= 0;
+
   return (
     <div className="p-6 lg:p-8 space-y-5 fade-up">
       {/* Hero Balance */}
@@ -176,6 +186,34 @@ export default function Dashboard() {
             >
               {formatAED(balance)}
             </div>
+            {/* Live equity */}
+            {openTrades.length > 0 && (
+              <div className="flex items-center gap-3 mt-2">
+                <span
+                  className="text-[10px] font-semibold tracking-[0.15em] uppercase"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Live Equity
+                </span>
+                <span
+                  className="text-lg font-bold tabular-nums tracking-tight"
+                  style={{ color: "var(--text-primary)", fontFamily: "var(--font-data)" }}
+                >
+                  {formatAED(liveEquity)}
+                </span>
+                <span
+                  className="text-xs font-semibold tabular-nums px-1.5 py-0.5 rounded"
+                  style={{
+                    color: unrealizedPositive ? "var(--green)" : "var(--red)",
+                    background: unrealizedPositive ? "var(--green-dim)" : "var(--red-dim)",
+                    fontFamily: "var(--font-data)",
+                  }}
+                >
+                  {unrealizedPositive ? "+" : ""}{formatAED(unrealizedPnl, { sign: true })} open
+                </span>
+              </div>
+            )}
+
             <div className="flex items-center gap-4 mt-3">
               <div className="flex items-center gap-1.5">
                 {pnlPositive ? (
@@ -503,7 +541,7 @@ export default function Dashboard() {
                 key={t.id}
                 trade={t}
                 currentPrice={
-                  prices[t.pair] ?? t.entry_price
+                  prices[t.pair.length === 6 ? t.pair.slice(0, 3) + "/" + t.pair.slice(3) : t.pair] ?? t.entry_price
                 }
               />
             ))}

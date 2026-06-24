@@ -439,6 +439,21 @@ export function getIbkrPositions(): IbkrPosition[] {
   return getDb().prepare("SELECT * FROM ibkr_positions ORDER BY symbol").all() as IbkrPosition[];
 }
 
+export function getIbkrLatestPrices(): Record<string, number> {
+  const rows = getDb().prepare(
+    `SELECT pair, close FROM ibkr_candles
+     WHERE (pair, tf, time) IN (
+       SELECT pair, tf, MAX(time) FROM ibkr_candles GROUP BY pair, tf
+     )`
+  ).all() as Array<{ pair: string; close: number }>;
+  const prices: Record<string, number> = {};
+  for (const r of rows) {
+    const key = r.pair.slice(0, 3) + "/" + r.pair.slice(3);
+    prices[key] = r.close;
+  }
+  return prices;
+}
+
 export function hasIbkrCandles(pair: string, tf: string): boolean {
   const row = getDb().prepare(
     "SELECT 1 FROM ibkr_candles WHERE pair = ? AND tf = ? LIMIT 1"

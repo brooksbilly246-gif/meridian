@@ -266,7 +266,7 @@ function connect() {
     }
   });
 
-  ib.on(EventName.historicalDataEnd, (reqId) => {
+  ib.on("historicalDataEnd" as EventName, (reqId: number) => {
     const meta = reqMap.get(reqId);
     if (meta) {
       log(`Historical load complete: ${meta.pair}/${meta.tf} — live bar updates active`);

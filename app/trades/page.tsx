@@ -3,6 +3,15 @@ import { useEffect, useState, useCallback } from "react";
 import { formatAED } from "@/lib/currency";
 import { Clock, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react";
 
+const PAIRS = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD"];
+const INITIAL_PRICES: Record<string, number> = {
+  "EUR/USD": 1.0845,
+  "GBP/USD": 1.2731,
+  "USD/JPY": 157.42,
+  "AUD/USD": 0.6523,
+  "USD/CAD": 1.3611,
+};
+
 type Signal = {
   id: number;
   pair: string;
@@ -35,14 +44,24 @@ export default function TradesPage() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [now, setNow] = useState(Date.now());
-
+  const [prices, setPrices] = useState(INITIAL_PRICES);
+  const [ibkrPrices, setIbkrPrices] = useState<Record<string, number>>({});
+  const [ibkrUnrealizedPnl, setIbkrUnrealizedPnl] = useState<number | null>(null);
   const fetchData = useCallback(async () => {
-    const [s, t] = await Promise.all([
+    const [s, t, ib] = await Promise.all([
       fetch("/api/trades?type=signals").then((r) => r.json()),
       fetch("/api/trades?type=all").then((r) => r.json()),
+      fetch("/api/ibkr").then((r) => r.json()).catch(() => null),
     ]);
     setSignals(s);
     setTrades(t);
+    if (ib && !ib.error) {
+      if (ib.prices && Object.keys(ib.prices).length > 0) {
+        setIbkrPrices(ib.prices);
+      }
+      const unrealVal = parseFloat(ib.account?.UnrealizedPnL?.value ?? "");
+      if (!isNaN(unrealVal)) setIbkrUnrealizedPnl(unrealVal);
+    }
   }, []);
 
   useEffect(() => {
@@ -52,9 +71,24 @@ export default function TradesPage() {
     return () => { clearInterval(d); clearInterval(t); };
   }, [fetchData]);
 
+  useEffect(() => {
+    const tick = setInterval(() => {
+      setPrices((prev) => {
+        const next = { ...prev };
+        for (const pair of PAIRS) {
+          const drift = (Math.random() - 0.5) * 0.0003;
+          next[pair] = parseFloat((prev[pair] + drift).toFixed(5));
+        }
+        return next;
+      });
+    }, 2000);
+    return () => clearInterval(tick);
+  }, []);
+
   const pending = signals.filter((s) => !s.executed);
   const open = trades.filter((t) => t.status === "OPEN");
   const closed = trades.filter((t) => t.status === "CLOSED");
+  const hasIbkr = Object.keys(ibkrPrices).length > 0;
 
   return (
     <div className="p-6 space-y-6">
@@ -85,7 +119,11 @@ export default function TradesPage() {
         {open.length === 0 ? (
           <Empty label="No open positions" />
         ) : (
-          <TradeTable trades={open} />
+          <TradeTable
+            trades={open}
+            prices={hasIbkr ? { ...prices, ...ibkrPrices } : prices}
+            ibkrUnrealizedPnl={hasIbkr ? ibkrUnrealizedPnl : null}
+          />
         )}
       </Section>
 
@@ -238,9 +276,26 @@ function SignalCard({ signal, now }: { signal: Signal; now: number }) {
   );
 }
 
-function TradeTable({ trades, showClose }: { trades: Trade[]; showClose?: boolean }) {
+function TradeTable({ trades, showClose, prices, ibkrUnrealizedPnl }: { trades: Trade[]; showClose?: boolean; prices?: Record<string, number>; ibkrUnrealizedPnl?: number | null }) {
   return (
     <div className="overflow-x-auto">
+      {ibkrUnrealizedPnl != null && !showClose && (
+        <div
+          className="flex items-center justify-between mb-3 px-3 py-2 rounded-lg text-xs"
+          style={{
+            background: ibkrUnrealizedPnl >= 0 ? "rgba(0,255,136,0.06)" : "rgba(255,51,102,0.06)",
+            border: `1px solid ${ibkrUnrealizedPnl >= 0 ? "rgba(0,255,136,0.15)" : "rgba(255,51,102,0.15)"}`,
+          }}
+        >
+          <span style={{ color: "var(--text-muted)" }}>IBKR Unrealized P&L (incl. commissions)</span>
+          <span
+            className="font-bold font-mono tabular-nums"
+            style={{ color: ibkrUnrealizedPnl >= 0 ? "var(--green)" : "var(--red)" }}
+          >
+            {formatAED(ibkrUnrealizedPnl, { sign: true })}
+          </span>
+        </div>
+      )}
       <table className="w-full text-xs">
         <thead>
           <tr style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>
@@ -257,7 +312,16 @@ function TradeTable({ trades, showClose }: { trades: Trade[]; showClose?: boolea
         </thead>
         <tbody>
           {trades.map((t) => {
-            const pos = t.pnl >= 0;
+            const isOpen = t.status === "OPEN" && prices;
+            const pairKey = t.pair.length === 6 ? t.pair.slice(0, 3) + "/" + t.pair.slice(3) : t.pair;
+            const currentPrice = isOpen ? (prices[pairKey] ?? t.entry_price) : null;
+            const isLong = t.direction === "LONG";
+            const diff = isOpen && currentPrice != null
+              ? (isLong ? currentPrice - t.entry_price : t.entry_price - currentPrice)
+              : 0;
+            const livePnlPips = isOpen ? parseFloat((diff * 10000).toFixed(1)) : t.pnl_pips;
+            const livePnl = isOpen ? diff : t.pnl;
+            const pos = isOpen ? livePnlPips >= 0 : t.pnl >= 0;
             return (
               <tr
                 key={t.id}
@@ -285,10 +349,10 @@ function TradeTable({ trades, showClose }: { trades: Trade[]; showClose?: boolea
                 <td className="py-2.5 text-right font-mono" style={{ color: "var(--text-muted)" }}>{t.stop_loss ?? "—"}</td>
                 <td className="py-2.5 text-right font-mono" style={{ color: "var(--text-muted)" }}>{t.take_profit ?? "—"}</td>
                 <td className="py-2.5 text-right font-mono font-bold" style={{ color: pos ? "var(--green)" : "var(--red)" }}>
-                  {formatAED(t.pnl, { sign: true })}
+                  {formatAED(livePnl, { sign: true })}
                 </td>
                 <td className="py-2.5 text-right font-mono" style={{ color: pos ? "var(--green)" : "var(--red)" }}>
-                  {pos ? "+" : ""}{t.pnl_pips?.toFixed(1)}
+                  {pos ? "+" : ""}{livePnlPips?.toFixed(1)}
                 </td>
                 <td className="py-2.5 text-right" style={{ color: "var(--text-muted)" }}>
                   {new Date((t.open_time ?? t.close_time) * 1000).toLocaleString()}

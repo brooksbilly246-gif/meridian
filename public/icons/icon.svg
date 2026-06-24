@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#050505"/>
+  <g transform="translate(256,256)">
+    <!-- Upward trending line chart -->
+    <polyline points="-140,80 -60,20 20,-30 100,-90" fill="none" stroke="#10b981" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Glow effect -->
+    <polyline points="-140,80 -60,20 20,-30 100,-90" fill="none" stroke="#10b981" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" opacity="0.3" filter="url(#blur)"/>
+    <!-- Dot at the tip -->
+    <circle cx="100" cy="-90" r="14" fill="#10b981"/>
+    <circle cx="100" cy="-90" r="22" fill="#10b981" opacity="0.2"/>
+  </g>
+  <defs>
+    <filter id="blur"><feGaussianBlur stdDeviation="8"/></filter>
+  </defs>
+</svg>
