@@ -333,9 +333,10 @@ export default function CandleChart({ pair: initPair, tf: initTf, height = 420 }
 
   const isUp          = lastCandle ? lastCandle.close >= lastCandle.open : true;
   const change        = lastCandle ? ((lastCandle.close - lastCandle.open) / lastCandle.open * 100) : 0;
-  const pendingSetups = annotations.signals.filter((s) => !s.executed);
-  const openTrades    = annotations.trades.filter((t) => t.status === "OPEN");
-  const hasAnnotations = pendingSetups.length > 0 || openTrades.length > 0;
+  const pendingSetups  = annotations.signals.filter((s) => !s.executed);
+  const openTrades     = annotations.trades.filter((t) => t.status === "OPEN");
+  const recentClosed   = annotations.trades.filter((t) => t.status === "CLOSED").slice(0, 5);
+  const hasAnnotations = pendingSetups.length > 0 || openTrades.length > 0 || recentClosed.length > 0;
 
   return (
     <div className="flex flex-col h-full">
@@ -475,6 +476,19 @@ export default function CandleChart({ pair: initPair, tf: initTf, height = 420 }
                 pair={pair}
               />
             ))}
+            {recentClosed.map((trade) => (
+              <LevelCard
+                key={`closed-${trade.id}`}
+                type="CLOSED"
+                direction={trade.direction}
+                entry={trade.entry_price}
+                sl={trade.stop_loss}
+                tp={trade.take_profit}
+                closePrice={trade.close_price}
+                pnl={trade.pnl}
+                pair={pair}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -482,58 +496,96 @@ export default function CandleChart({ pair: initPair, tf: initTf, height = 420 }
   );
 }
 
-function LevelCard({ type, direction, entry, sl, tp, pair }: {
-  type: "SETUP" | "OPEN";
+function LevelCard({ type, direction, entry, sl, tp, closePrice, pnl, pair }: {
+  type: "SETUP" | "OPEN" | "CLOSED";
   direction: string;
   entry: number | null;
   sl: number | null;
   tp: number | null;
+  closePrice?: number | null;
+  pnl?: number | null;
   pair: string;
 }) {
-  const isLong  = direction === "LONG";
+  const isLong   = direction === "LONG";
   const dirColor = isLong ? "var(--green)" : "var(--red)";
   const rr       = riskReward(entry, sl, tp);
+  const isClosed = type === "CLOSED";
+  const won      = isClosed && pnl != null ? pnl > 0 : null;
 
-  const risk   = entry != null && sl != null ? Math.abs(entry - sl) : null;
-  const reward = entry != null && tp != null ? Math.abs(tp - entry) : null;
-  const pipSize = pair.includes("JPY") ? 0.01 : 0.0001;
-  const riskPips   = risk   != null ? (risk   / pipSize).toFixed(1) : null;
-  const rewardPips = reward != null ? (reward / pipSize).toFixed(1) : null;
+  const ps = pair.includes("JPY") ? 0.01 : 0.0001;
+  const riskPips   = entry != null && sl != null ? (Math.abs(entry - sl)  / ps).toFixed(1) : null;
+  const rewardPips = entry != null && tp != null ? (Math.abs(tp - entry)  / ps).toFixed(1) : null;
+  const closePips  = entry != null && closePrice != null
+    ? ((isLong ? closePrice - entry : entry - closePrice) / ps).toFixed(1) : null;
+
+  const typeColor =
+    type === "SETUP"  ? "var(--yellow)" :
+    type === "OPEN"   ? "var(--green)"  :
+    won === true      ? "var(--green)"  :
+    won === false     ? "var(--red)"    : "var(--text-muted)";
+
+  const typeBg =
+    type === "SETUP"  ? "rgba(255,215,0,0.15)"  :
+    type === "OPEN"   ? "rgba(0,255,136,0.15)"  :
+    won === true      ? "rgba(0,255,136,0.12)"  :
+    won === false     ? "rgba(255,51,102,0.12)" : "rgba(100,100,100,0.15)";
+
+  const typeLabel =
+    type === "SETUP"  ? "SETUP"   :
+    type === "OPEN"   ? "OPEN"    :
+    won === true      ? "TP HIT"  :
+    won === false     ? "SL HIT"  : "CLOSED";
 
   return (
     <div
       className="rounded-xl overflow-hidden text-xs"
-      style={{ border: `1px solid ${dirColor}30`, minWidth: 220 }}
+      style={{
+        border: `1px solid ${isClosed ? (won ? "rgba(0,255,136,0.20)" : "rgba(255,51,102,0.20)") : dirColor + "30"}`,
+        minWidth: 220,
+        opacity: isClosed ? 0.75 : 1,
+      }}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-1.5"
-        style={{ background: `${dirColor}12`, borderBottom: `1px solid ${dirColor}20` }}>
-        <div className="flex items-center gap-2 font-bold" style={{ color: dirColor }}>
+        style={{ background: isClosed ? "rgba(255,255,255,0.04)" : `${dirColor}12`, borderBottom: `1px solid ${isClosed ? "var(--border)" : dirColor + "20"}` }}>
+        <div className="flex items-center gap-2 font-bold" style={{ color: isClosed ? "var(--text-muted)" : dirColor }}>
           <span>{isLong ? "▲" : "▼"}</span>
           <span>{pair.slice(0,3)}/{pair.slice(3)} {direction}</span>
         </div>
         <span className="text-[10px] font-medium px-1.5 py-0.5 rounded"
-          style={{ background: type === "SETUP" ? "rgba(255,215,0,0.15)" : "rgba(0,255,136,0.15)",
-                   color: type === "SETUP" ? "var(--yellow)" : "var(--green)" }}>
-          {type}
+          style={{ background: typeBg, color: typeColor }}>
+          {typeLabel}
         </span>
       </div>
 
       {/* Levels */}
       <div className="px-3 py-2 space-y-1.5" style={{ background: "rgba(255,255,255,0.02)" }}>
-        <LevelRow icon="⟶" label="Entry" value={entry != null ? FMT(pair, entry) : "—"} color="var(--accent)" />
-        <LevelRow icon="✕" label="Stop Loss"   value={sl != null ? FMT(pair, sl) : "—"}
-          sub={riskPips ? `${riskPips} pips`  : undefined} color="var(--red)" />
-        <LevelRow icon="✓" label="Take Profit" value={tp != null ? FMT(pair, tp) : "—"}
+        <LevelRow icon="⟶" label="Entry"       value={entry       != null ? FMT(pair, entry)      : "—"} color="var(--accent)" />
+        <LevelRow icon="✕" label="Stop Loss"    value={sl          != null ? FMT(pair, sl)         : "—"}
+          sub={riskPips   ? `${riskPips} pips`   : undefined} color="var(--red)" />
+        <LevelRow icon="✓" label="Take Profit"  value={tp          != null ? FMT(pair, tp)         : "—"}
           sub={rewardPips ? `${rewardPips} pips` : undefined} color="var(--green)" />
+        {isClosed && closePrice != null && (
+          <LevelRow
+            icon="◉"
+            label="Closed at"
+            value={FMT(pair, closePrice)}
+            sub={closePips != null ? `${Number(closePips) >= 0 ? "+" : ""}${closePips} pips` : undefined}
+            color={won ? "var(--green)" : "var(--red)"}
+          />
+        )}
       </div>
 
-      {/* R:R footer */}
-      {rr && (
+      {/* Footer: R:R or P&L */}
+      {(rr || (isClosed && pnl != null)) && (
         <div className="px-3 py-1.5 flex justify-between items-center"
           style={{ background: "rgba(255,255,255,0.02)", borderTop: "1px solid var(--border)" }}>
-          <span style={{ color: "var(--text-muted)" }}>Risk : Reward</span>
-          <span className="font-bold font-mono" style={{ color: "var(--accent)" }}>{rr}</span>
+          {rr && <span style={{ color: "var(--text-muted)" }}>R : R  <span className="font-mono font-semibold" style={{ color: "var(--accent)" }}>{rr}</span></span>}
+          {isClosed && pnl != null && (
+            <span className="font-mono font-bold ml-auto" style={{ color: pnl >= 0 ? "var(--green)" : "var(--red)" }}>
+              {formatAED(pnl, { sign: true })}
+            </span>
+          )}
         </div>
       )}
     </div>

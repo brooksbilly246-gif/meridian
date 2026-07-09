@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "ibkr-bridge": "tsx scripts/ibkr-bridge.ts"
+    "oanda-bridge": "tsx scripts/oanda-bridge.ts"
   },
   "dependencies": {
     "@stoqey/ib": "^1.6.2",

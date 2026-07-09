@@ -26,7 +26,7 @@ import {
   stratLog,
   StrategySession,
 } from "./db";
-import { runRiskChecks, calcLotSize, scaledLotSize, calcPnl, toPips, fromPips, pipSize } from "./risk";
+import { runRiskChecks, calcLotSize, scaledLotSize, calcPnl, toPips, fromPips, pipSize, calcATR } from "./risk";
 import { formatAED } from "./currency";
 import { notifySetup, sendIMessage } from "./notify";
 import { computeInsights } from "./insights";
@@ -121,11 +121,22 @@ async function checkBreakout(
 
   if (!breakoutCandles.length) return "no candles in breakout window yet";
 
-  const bufferPips   = parseFloat(getSetting("strategy_entry_buffer_pips") || "2");
-  const buffer       = fromPips(bufferPips, pair);
-  const tpMultiplier = parseFloat(getSetting("strategy_tp_multiplier") || "1.5");
-  const rangeSize    = session.asian_high - session.asian_low;
-  const riskPct      = parseFloat(getSetting("risk_per_trade") || "1");
+  const bufferPips    = parseFloat(getSetting("strategy_entry_buffer_pips") || "2");
+  const buffer        = fromPips(bufferPips, pair);
+  const tpMultiplier  = parseFloat(getSetting("strategy_tp_multiplier") || "1.5");
+  const rangeSize     = session.asian_high - session.asian_low;
+  const riskPct       = parseFloat(getSetting("risk_per_trade") || "1");
+  const atrMultiplier = parseFloat(getSetting("strategy_atr_sl_multiplier") || "0.3");
+  const atrPeriod     = 14;
+
+  // ATR-buffered SL: widen stop to max(fixed buffer, atrMultiplier × ATR(14))
+  const preBoCandles = candles.filter((c) => {
+    const h = candleGmtHour(c.time);
+    const d = candleDateStr(c.time);
+    return d === today && h < breakoutStart;
+  }).slice(-(atrPeriod + 1));
+  const atr      = calcATR(preBoCandles, atrPeriod);
+  const slBuffer = Math.max(buffer, atr * atrMultiplier);
 
   const stats   = getStats();
   const balance = parseFloat(stats.balance);
@@ -138,12 +149,12 @@ async function checkBreakout(
     if (c.close > session.asian_high + buffer) {
       direction = "LONG";
       entry = session.asian_high + buffer;
-      sl    = session.asian_low  - buffer;
+      sl    = session.asian_low  - slBuffer;
       tp    = entry + rangeSize * tpMultiplier;
     } else if (c.close < session.asian_low - buffer) {
       direction = "SHORT";
       entry = session.asian_low  - buffer;
-      sl    = session.asian_high + buffer;
+      sl    = session.asian_high + slBuffer;
       tp    = entry - rangeSize * tpMultiplier;
     }
 

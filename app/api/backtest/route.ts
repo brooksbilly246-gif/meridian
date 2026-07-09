@@ -1,4 +1,4 @@
-import { calcPnl, toPips, fromPips, pipSize, scaledLotSize } from "@/lib/risk";
+import { calcPnl, toPips, fromPips, pipSize, scaledLotSize, calcATR } from "@/lib/risk";
 import { AED_RATE } from "@/lib/currency";
 
 type Candle = { time: number; open: number; high: number; low: number; close: number };
@@ -19,6 +19,8 @@ export type BacktestParams = {
   maxRangePips:       number;
   riskPct:            number;
   breakevenR:         number;
+  atrPeriod?:         number;
+  atrMultiplier?:     number;
 };
 
 export type BtTrade = {
@@ -122,6 +124,7 @@ function runPairBacktest(
     dateFrom, dateTo,
     asianStart, asianEnd, breakoutStart, breakoutEnd, cutoffHour,
     bufferPips, tpMultiplier, minRangePips, maxRangePips, riskPct, breakevenR,
+    atrPeriod = 14, atrMultiplier = 0,
   } = params;
 
   const buffer = fromPips(bufferPips, pair);
@@ -165,14 +168,20 @@ function runPairBacktest(
     const bothBroken = boC.some((c) => c.close > rangeHigh + buffer) && boC.some((c) => c.close < rangeLow - buffer);
     if (bothBroken) { skippedDays++; continue; }
 
+    // ATR-buffered SL: widen stop by max(fixed buffer, atrMultiplier × ATR)
+    // Uses candles up to the breakout window to avoid lookahead bias
+    const preBo     = filtered.filter((c) => c.time < boC[0].time).slice(-(atrPeriod + 1));
+    const atr       = atrMultiplier > 0 ? calcATR(preBo, atrPeriod) : 0;
+    const slBuffer  = Math.max(buffer, atr * atrMultiplier);
+
     let direction: "LONG" | "SHORT" | null = null;
     let entry = 0, sl = 0, tp = 0;
 
     for (const c of boC) {
       if (c.close > rangeHigh + buffer) {
-        direction = "LONG"; entry = rangeHigh + buffer; sl = rangeLow - buffer; tp = entry + (rangeHigh - rangeLow) * tpMultiplier; break;
+        direction = "LONG"; entry = rangeHigh + buffer; sl = rangeLow - slBuffer; tp = entry + (rangeHigh - rangeLow) * tpMultiplier; break;
       } else if (c.close < rangeLow - buffer) {
-        direction = "SHORT"; entry = rangeLow - buffer; sl = rangeHigh + buffer; tp = entry - (rangeHigh - rangeLow) * tpMultiplier; break;
+        direction = "SHORT"; entry = rangeLow - buffer; sl = rangeHigh + slBuffer; tp = entry - (rangeHigh - rangeLow) * tpMultiplier; break;
       }
     }
 

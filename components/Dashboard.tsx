@@ -50,14 +50,15 @@ type Trade = {
 
 type PnlPoint = { time: string; pnl: number };
 
-type IbkrAccountRow = { value: string | null; currency: string | null };
-type IbkrPosition = {
-  symbol: string; pair: string | null; sec_type: string;
-  position: number; avg_cost: number | null; currency: string | null; updated_at: number;
+type OandaPosition = {
+  trade_id: string; instrument: string; pair: string | null;
+  units: number; price: number | null;
+  stop_loss: number | null; take_profit: number | null;
+  unrealized_pnl: number | null; updated_at: number;
 };
-type IbkrData = {
-  account: Record<string, IbkrAccountRow>;
-  positions: IbkrPosition[];
+type OandaData = {
+  account: Record<string, string | null>;
+  positions: OandaPosition[];
 };
 
 const PAIRS = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD"];
@@ -85,8 +86,9 @@ function getActiveSessions(utcHour: number) {
 }
 
 function useTime() {
-  const [now, setNow] = useState(new Date());
+  const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
+    setNow(new Date());
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
@@ -97,21 +99,21 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [pnlHistory, setPnlHistory] = useState<PnlPoint[]>([]);
   const [openTrades, setOpenTrades] = useState<Trade[]>([]);
-  const [ibkr, setIbkr] = useState<IbkrData | null>(null);
+  const [oanda, setOanda] = useState<OandaData | null>(null);
   const [prices, setPrices] = useState(mockPrices);
   const [prevPrices, setPrevPrices] = useState(mockPrices);
   const now = useTime();
 
   async function fetchData() {
-    const [s, t, ib] = await Promise.all([
+    const [s, t, oa] = await Promise.all([
       fetch("/api/stats").then((r) => r.json()),
       fetch("/api/trades?type=open").then((r) => r.json()),
-      fetch("/api/ibkr").then((r) => r.json()).catch(() => null),
+      fetch("/api/oanda").then((r) => r.json()).catch(() => null),
     ]);
     setStats(s.stats);
     setPnlHistory(s.pnlHistory);
     setOpenTrades(t);
-    if (ib && !ib.error) setIbkr(ib);
+    if (oa && !oa.error) setOanda(oa);
   }
 
   useEffect(() => {
@@ -139,7 +141,7 @@ export default function Dashboard() {
   const pnlPositive = pnl >= 0;
   const balance = parseFloat(stats?.balance ?? "10000");
   const winRate = parseFloat(stats?.winRate ?? "0");
-  const activeSessions = getActiveSessions(now.getUTCHours());
+  const activeSessions = now ? getActiveSessions(now.getUTCHours()) : [];
 
   const unrealizedPnl = openTrades.reduce((sum, t) => {
     const pairKey = t.pair.length === 6 ? t.pair.slice(0, 3) + "/" + t.pair.slice(3) : t.pair;
@@ -246,7 +248,7 @@ export default function Dashboard() {
               className="text-2xl font-bold tabular-nums tracking-tight"
               style={{ color: "var(--text-primary)", fontFamily: "var(--font-data)" }}
             >
-              {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+              {now ? now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "--:--:--"}
             </div>
             <div className="flex items-center gap-2">
               <Globe size={11} style={{ color: "var(--text-muted)" }} />
@@ -285,7 +287,7 @@ export default function Dashboard() {
                   className="flex-1 transition-colors"
                   style={{
                     background: color,
-                    opacity: h === now.getUTCHours() ? 1 : sessions.length > 0 ? 0.3 : 0.1,
+                    opacity: now && h === now.getUTCHours() ? 1 : sessions.length > 0 ? 0.3 : 0.1,
                   }}
                 />
               );
@@ -338,8 +340,8 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* IBKR Panel */}
-      <IbkrPanel data={ibkr} />
+      {/* OANDA Panel */}
+      <OandaPanel data={oanda} />
 
       {/* Charts row */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
@@ -769,16 +771,16 @@ function PriceRow({
   );
 }
 
-function IbkrPanel({ data }: { data: IbkrData | null }) {
+function OandaPanel({ data }: { data: OandaData | null }) {
   const acc = data?.account ?? {};
   const positions = data?.positions ?? [];
   const hasData = Object.keys(acc).length > 0;
 
-  const val = (key: string) => parseFloat(acc[key]?.value ?? "0");
-  const netLiq    = val("NetLiquidation");
-  const cash      = val("TotalCashValue");
-  const buyPower  = val("BuyingPower");
-  const unrealPnl = val("UnrealizedPnL");
+  const val = (key: string) => parseFloat(acc[key] ?? "0");
+  const netLiq    = val("nav");
+  const cash      = val("balance");
+  const buyPower  = val("marginAvailable");
+  const unrealPnl = val("unrealizedPL");
 
   const lastUpdated = positions[0]?.updated_at ?? 0;
   const isStale = hasData && lastUpdated > 0 && (Date.now() / 1000 - lastUpdated) > 120;
@@ -791,7 +793,7 @@ function IbkrPanel({ data }: { data: IbkrData | null }) {
         <div className="flex items-center gap-2">
           <Building2 size={14} style={{ color: "var(--text-muted)" }} />
           <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
-            IBKR Paper Account
+            OANDA Account
           </span>
           <div
             className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-widest uppercase"
@@ -809,7 +811,7 @@ function IbkrPanel({ data }: { data: IbkrData | null }) {
           </div>
         </div>
         <span className="text-[10px] tracking-wider uppercase" style={{ color: "var(--text-muted)" }}>
-          Interactive Brokers
+          OANDA
         </span>
       </div>
 
@@ -832,7 +834,7 @@ function IbkrPanel({ data }: { data: IbkrData | null }) {
                 Positions
               </span>
               {positions.map((pos) => (
-                <IbkrPositionRow key={pos.symbol} pos={pos} />
+                <OandaPositionRow key={pos.trade_id} pos={pos} />
               ))}
             </div>
           ) : (
@@ -853,7 +855,7 @@ function IbkrPanel({ data }: { data: IbkrData | null }) {
               className="px-1.5 py-0.5 rounded text-[10px]"
               style={{ background: "var(--bg-surface)", color: "var(--accent)" }}
             >
-              npm run ibkr-bridge
+              npm run oanda-bridge
             </code>{" "}
             in a second terminal
           </span>
@@ -894,12 +896,12 @@ function AcctMetric({
   );
 }
 
-function IbkrPositionRow({ pos }: { pos: IbkrPosition }) {
-  const isLong = pos.position > 0;
-  const label  = pos.pair ?? pos.symbol;
-  const qty    = Math.abs(pos.position).toLocaleString();
+function OandaPositionRow({ pos }: { pos: OandaPosition }) {
+  const isLong = pos.units > 0;
+  const label  = pos.pair ?? pos.instrument;
+  const qty    = Math.abs(pos.units).toLocaleString();
   const isJpy  = label.includes("JPY");
-  const cost   = pos.avg_cost != null ? pos.avg_cost.toFixed(isJpy ? 3 : 5) : null;
+  const cost   = pos.price != null ? pos.price.toFixed(isJpy ? 3 : 5) : null;
 
   return (
     <div

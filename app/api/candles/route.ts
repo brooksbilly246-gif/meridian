@@ -1,5 +1,5 @@
-// Candle data: serves IBKR bars when the bridge is running, falls back to Yahoo Finance.
-import { getIbkrCandles, hasIbkrCandles } from "@/lib/db";
+// Candle data: serves OANDA bars when the bridge is running, falls back to Yahoo Finance.
+import { getOandaCandles, hasOandaCandles } from "@/lib/db";
 
 const TF_MAP: Record<string, { interval: string; range: string }> = {
   "1m":  { interval: "1m",  range: "1d"  },
@@ -15,15 +15,15 @@ export async function GET(req: Request) {
   const pair = (url.searchParams.get("pair") ?? "EURUSD").toUpperCase().replace("/", "");
   const tf   = url.searchParams.get("tf") ?? "1h";
 
-  // Prefer IBKR data when the bridge has populated it for this pair/tf
-  if (hasIbkrCandles(pair, tf)) {
-    const candles = getIbkrCandles(pair, tf);
-    return Response.json({ pair, tf, candles, source: "ibkr" });
+  // Prefer OANDA data when the bridge has populated it for this pair/tf
+  if (hasOandaCandles(pair, tf)) {
+    const candles = getOandaCandles(pair, tf);
+    return Response.json({ pair, tf, candles, source: "oanda" });
   }
 
   // Fall back to Yahoo Finance
-  const cfg = TF_MAP[tf] ?? TF_MAP["1h"];
-  const symbol   = `${pair}=X`;
+  const cfg     = TF_MAP[tf] ?? TF_MAP["1h"];
+  const symbol  = `${pair}=X`;
   const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=${cfg.interval}&range=${cfg.range}&includePrePost=false`;
 
   try {

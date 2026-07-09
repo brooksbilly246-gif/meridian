@@ -41,6 +41,26 @@ import { AED_RATE } from "./currency";
 
 export type RiskCheck = { ok: boolean; reason?: string };
 
+// ─── ATR ─────────────────────────────────────────────────────────────────────
+
+export function calcATR(
+  candles: { high: number; low: number; close: number }[],
+  period: number,
+): number {
+  if (candles.length < 2) return 0;
+  const trs: number[] = [];
+  for (let i = 1; i < candles.length; i++) {
+    const tr = Math.max(
+      candles[i].high - candles[i].low,
+      Math.abs(candles[i].high - candles[i - 1].close),
+      Math.abs(candles[i].low  - candles[i - 1].close),
+    );
+    trs.push(tr);
+  }
+  const window = trs.slice(-period);
+  return window.reduce((s, v) => s + v, 0) / window.length;
+}
+
 // ─── Pip utilities ───────────────────────────────────────────────────────────
 
 export function pipSize(pair: string): number {
