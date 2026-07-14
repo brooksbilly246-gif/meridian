@@ -21,6 +21,7 @@ import {
   closeTrade,
   updateTradeStopLoss,
   getOpenTrades,
+  hasTradeOnPairToday,
   insertSignal,
   markSignalExecuted,
   stratLog,
@@ -108,7 +109,9 @@ async function checkBreakout(
   breakoutEnd: number
 ): Promise<string | null> {
   if (!session.asian_high || !session.asian_low) return "no Asian range yet";
-  if (session.signal_fired) return "signal already fired today";
+  // DB-level dedup: covers both duplicate ticks and re-entry after SL hit.
+  // The session.signal_fired flag was never persisting — this is the fix.
+  if (hasTradeOnPairToday(pair, today)) return "trade already exists for this pair today";
 
   const candles = await fetchCandles(pair, "15m", "5d");
   if (!candles.length) return "no candle data";

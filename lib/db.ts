@@ -293,6 +293,12 @@ export function getOpenTrades() {
 export function getAllTrades(limit = 100) {
   return getDb().prepare("SELECT * FROM trades ORDER BY created_at DESC LIMIT ?").all(limit);
 }
+export function hasTradeOnPairToday(pair: string, date: string): boolean {
+  const row = getDb()
+    .prepare("SELECT 1 FROM trades WHERE pair=? AND status IN ('OPEN','CLOSED') AND date(datetime(open_time,'unixepoch'))=?")
+    .get(pair, date);
+  return row != null;
+}
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 export function getStats() {

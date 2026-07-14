@@ -134,28 +134,32 @@ export function calcPnl(
 }
 
 // ─── Correlation groups ───────────────────────────────────────────────────────
-// Pairs that move together — trading two from the same group doubles exposure.
-const CORR_GROUPS: string[][] = [
-  ["EURUSD", "GBPUSD", "AUDUSD", "NZDUSD"],  // USD-strength sensitive (positive)
-  ["USDCHF", "USDJPY", "USDCAD"],             // USD-strength sensitive (inverse)
-];
+// Every correlated pair/direction maps to a USD direction (UP or DOWN).
+// EURUSD SHORT = USD up. USDCAD LONG = USD up. Same bet, different syntax.
+// Blocking on same-group same-direction missed this cross-group equivalence.
+const USD_BASE_PAIRS = new Set(["USDCHF", "USDJPY", "USDCAD"]);
+
+function usdDirection(pair: string, direction: string): "USD_UP" | "USD_DOWN" {
+  const isUsdBase = USD_BASE_PAIRS.has(pair.toUpperCase());
+  if (isUsdBase) {
+    return direction === "LONG" ? "USD_UP" : "USD_DOWN";
+  }
+  return direction === "SHORT" ? "USD_UP" : "USD_DOWN";
+}
 
 export function correlatedPairExists(newPair: string, newDirection: string): boolean {
   const openTrades = getOpenTrades() as { pair: string; direction: string }[];
   if (!openTrades.length) return false;
 
-  for (const group of CORR_GROUPS) {
-    if (!group.includes(newPair)) continue;
+  const newUsdDir = usdDirection(newPair, newDirection);
 
-    for (const trade of openTrades) {
-      const tradePair = trade.pair.replace("/", "");
-      if (!group.includes(tradePair) || tradePair === newPair) continue;
-
-      // Both pairs in same group, same direction = correlated concentration
-      if (trade.direction === newDirection) {
-        stratLog("RISK", `Correlation block: ${newPair} ${newDirection} conflicts with open ${tradePair} ${trade.direction}`);
-        return true;
-      }
+  for (const trade of openTrades) {
+    const tradePair = trade.pair.replace("/", "");
+    if (tradePair === newPair) continue;
+    const tradeUsdDir = usdDirection(tradePair, trade.direction);
+    if (tradeUsdDir === newUsdDir) {
+      stratLog("RISK", `Correlation block: ${newPair} ${newDirection} (${newUsdDir}) conflicts with open ${tradePair} ${trade.direction} (${tradeUsdDir})`);
+      return true;
     }
   }
   return false;
