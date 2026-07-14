@@ -137,7 +137,7 @@ function initSchema(db: Database.Database) {
       updated_at INTEGER DEFAULT (unixepoch())
     );
 
-    CREATE TABLE IF NOT EXISTS oanda_candles (
+    CREATE TABLE IF NOT EXISTS ibkr_candles (
       pair TEXT NOT NULL,
       tf TEXT NOT NULL,
       time INTEGER NOT NULL,
@@ -149,41 +149,21 @@ function initSchema(db: Database.Database) {
       PRIMARY KEY (pair, tf, time)
     );
 
-    CREATE TABLE IF NOT EXISTS oanda_account (
+    CREATE TABLE IF NOT EXISTS ibkr_account (
       key TEXT PRIMARY KEY,
       value TEXT,
+      currency TEXT,
       updated_at INTEGER DEFAULT (unixepoch())
     );
 
-    CREATE TABLE IF NOT EXISTS oanda_positions (
-      trade_id TEXT PRIMARY KEY,
-      instrument TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS ibkr_positions (
+      symbol TEXT PRIMARY KEY,
       pair TEXT,
-      units REAL NOT NULL,
-      price REAL,
-      stop_loss REAL,
-      take_profit REAL,
-      unrealized_pnl REAL,
+      sec_type TEXT,
+      position REAL NOT NULL,
+      avg_cost REAL,
+      currency TEXT,
       updated_at INTEGER DEFAULT (unixepoch())
-    );
-
-    CREATE TABLE IF NOT EXISTS oanda_live_trades (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      pair TEXT NOT NULL,
-      direction TEXT NOT NULL,
-      oanda_trade_id TEXT UNIQUE,
-      entry_price REAL,
-      stop_loss REAL,
-      take_profit REAL,
-      lot_size REAL,
-      units INTEGER,
-      session_date TEXT,
-      status TEXT DEFAULT 'OPEN',
-      breakeven_moved INTEGER DEFAULT 0,
-      pnl REAL,
-      close_price REAL,
-      close_time INTEGER,
-      created_at INTEGER DEFAULT (unixepoch())
     );
   `);
 
@@ -474,51 +454,29 @@ export type StrategyLogEntry = {
   id: number; level: string; message: string; pair: string | null; created_at: number;
 };
 
-// ─── OANDA Data ───────────────────────────────────────────────────────────────
-export type OandaCandle = { time: number; open: number; high: number; low: number; close: number; volume: number | null };
-export type OandaPosition = { trade_id: string; instrument: string; pair: string | null; units: number; price: number | null; stop_loss: number | null; take_profit: number | null; unrealized_pnl: number | null; updated_at: number };
-export type OandaAccountRow = { key: string; value: string | null };
-export type OandaLiveTrade = { id: number; pair: string; direction: string; oanda_trade_id: string | null; entry_price: number; stop_loss: number; take_profit: number; lot_size: number; units: number; session_date: string; status: string; breakeven_moved: number; pnl: number | null; close_price: number | null; close_time: number | null; created_at: number };
+// ─── IBKR Data ────────────────────────────────────────────────────────────────
+export type IbkrCandle = { time: number; open: number; high: number; low: number; close: number; volume: number | null };
+export type IbkrPosition = { symbol: string; pair: string | null; sec_type: string; position: number; avg_cost: number | null; currency: string | null; updated_at: number };
+export type IbkrAccountRow = { key: string; value: string | null; currency: string | null };
 
-export function getOandaCandles(pair: string, tf: string, limit = 750): OandaCandle[] {
+export function getIbkrCandles(pair: string, tf: string, limit = 750): IbkrCandle[] {
   return getDb().prepare(
-    `SELECT time, open, high, low, close, volume FROM oanda_candles
+    `SELECT time, open, high, low, close, volume FROM ibkr_candles
      WHERE pair = ? AND tf = ? ORDER BY time ASC LIMIT ?`
-  ).all(pair, tf, limit) as OandaCandle[];
+  ).all(pair, tf, limit) as IbkrCandle[];
 }
 
-export function getOandaAccount(): OandaAccountRow[] {
-  return getDb().prepare("SELECT key, value FROM oanda_account").all() as OandaAccountRow[];
+export function getIbkrAccount(): IbkrAccountRow[] {
+  return getDb().prepare("SELECT key, value, currency FROM ibkr_account").all() as IbkrAccountRow[];
 }
 
-export function getOandaPositions(): OandaPosition[] {
-  return getDb().prepare("SELECT * FROM oanda_positions ORDER BY instrument").all() as OandaPosition[];
+export function getIbkrPositions(): IbkrPosition[] {
+  return getDb().prepare("SELECT * FROM ibkr_positions ORDER BY symbol").all() as IbkrPosition[];
 }
 
-export function getOandaLatestPrices(): Record<string, number> {
-  const rows = getDb().prepare(
-    `SELECT pair, close FROM oanda_candles
-     WHERE (pair, tf, time) IN (
-       SELECT pair, tf, MAX(time) FROM oanda_candles GROUP BY pair, tf
-     )`
-  ).all() as Array<{ pair: string; close: number }>;
-  const prices: Record<string, number> = {};
-  for (const r of rows) {
-    if (r.pair) prices[`${r.pair.slice(0, 3)}/${r.pair.slice(3)}`] = r.close;
-  }
-  return prices;
-}
-
-export function hasOandaCandles(pair: string, tf: string): boolean {
+export function hasIbkrCandles(pair: string, tf: string): boolean {
   const row = getDb().prepare(
-    "SELECT 1 FROM oanda_candles WHERE pair = ? AND tf = ? LIMIT 1"
+    "SELECT 1 FROM ibkr_candles WHERE pair = ? AND tf = ? LIMIT 1"
   ).get(pair, tf);
   return row != null;
-}
-
-export function getOandaLiveTrades(status?: "OPEN" | "CLOSED"): OandaLiveTrade[] {
-  const where = status ? `WHERE status='${status}'` : "";
-  return getDb().prepare(
-    `SELECT * FROM oanda_live_trades ${where} ORDER BY created_at DESC`
-  ).all() as OandaLiveTrade[];
 }

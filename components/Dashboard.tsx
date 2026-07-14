@@ -50,15 +50,14 @@ type Trade = {
 
 type PnlPoint = { time: string; pnl: number };
 
-type OandaPosition = {
-  trade_id: string; instrument: string; pair: string | null;
-  units: number; price: number | null;
-  stop_loss: number | null; take_profit: number | null;
-  unrealized_pnl: number | null; updated_at: number;
+type IbkrPosition = {
+  symbol: string; pair: string | null; sec_type: string;
+  position: number; avg_cost: number | null;
+  currency: string | null; updated_at: number;
 };
-type OandaData = {
-  account: Record<string, string | null>;
-  positions: OandaPosition[];
+type IbkrData = {
+  account: Record<string, { value: string | null; currency: string | null }>;
+  positions: IbkrPosition[];
 };
 
 const PAIRS = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD"];
@@ -99,7 +98,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [pnlHistory, setPnlHistory] = useState<PnlPoint[]>([]);
   const [openTrades, setOpenTrades] = useState<Trade[]>([]);
-  const [oanda, setOanda] = useState<OandaData | null>(null);
+  const [ibkr, setIbkr] = useState<IbkrData | null>(null);
   const [prices, setPrices] = useState(mockPrices);
   const [prevPrices, setPrevPrices] = useState(mockPrices);
   const now = useTime();
@@ -108,12 +107,12 @@ export default function Dashboard() {
     const [s, t, oa] = await Promise.all([
       fetch("/api/stats").then((r) => r.json()),
       fetch("/api/trades?type=open").then((r) => r.json()),
-      fetch("/api/oanda").then((r) => r.json()).catch(() => null),
+      fetch("/api/ibkr").then((r) => r.json()).catch(() => null),
     ]);
     setStats(s.stats);
     setPnlHistory(s.pnlHistory);
     setOpenTrades(t);
-    if (oa && !oa.error) setOanda(oa);
+    if (oa && !oa.error) setIbkr(oa);
   }
 
   useEffect(() => {
@@ -340,8 +339,8 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* OANDA Panel */}
-      <OandaPanel data={oanda} />
+      {/* IBKR Panel */}
+      <IbkrPanel data={ibkr} />
 
       {/* Charts row */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
@@ -771,16 +770,16 @@ function PriceRow({
   );
 }
 
-function OandaPanel({ data }: { data: OandaData | null }) {
+function IbkrPanel({ data }: { data: IbkrData | null }) {
   const acc = data?.account ?? {};
   const positions = data?.positions ?? [];
   const hasData = Object.keys(acc).length > 0;
 
-  const val = (key: string) => parseFloat(acc[key] ?? "0");
-  const netLiq    = val("nav");
-  const cash      = val("balance");
-  const buyPower  = val("marginAvailable");
-  const unrealPnl = val("unrealizedPL");
+  const val = (key: string) => parseFloat(acc[key]?.value ?? "0");
+  const netLiq    = val("NetLiquidation");
+  const cash      = val("TotalCashValue");
+  const buyPower  = val("BuyingPower");
+  const unrealPnl = val("UnrealizedPnL");
 
   const lastUpdated = positions[0]?.updated_at ?? 0;
   const isStale = hasData && lastUpdated > 0 && (Date.now() / 1000 - lastUpdated) > 120;
@@ -793,7 +792,7 @@ function OandaPanel({ data }: { data: OandaData | null }) {
         <div className="flex items-center gap-2">
           <Building2 size={14} style={{ color: "var(--text-muted)" }} />
           <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
-            OANDA Account
+            IBKR Paper Account
           </span>
           <div
             className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-widest uppercase"
@@ -811,7 +810,7 @@ function OandaPanel({ data }: { data: OandaData | null }) {
           </div>
         </div>
         <span className="text-[10px] tracking-wider uppercase" style={{ color: "var(--text-muted)" }}>
-          OANDA
+          Interactive Brokers
         </span>
       </div>
 
@@ -834,7 +833,7 @@ function OandaPanel({ data }: { data: OandaData | null }) {
                 Positions
               </span>
               {positions.map((pos) => (
-                <OandaPositionRow key={pos.trade_id} pos={pos} />
+                <IbkrPositionRow key={pos.symbol} pos={pos} />
               ))}
             </div>
           ) : (
@@ -855,7 +854,7 @@ function OandaPanel({ data }: { data: OandaData | null }) {
               className="px-1.5 py-0.5 rounded text-[10px]"
               style={{ background: "var(--bg-surface)", color: "var(--accent)" }}
             >
-              npm run oanda-bridge
+              npm run ibkr-bridge
             </code>{" "}
             in a second terminal
           </span>
@@ -896,12 +895,12 @@ function AcctMetric({
   );
 }
 
-function OandaPositionRow({ pos }: { pos: OandaPosition }) {
-  const isLong = pos.units > 0;
-  const label  = pos.pair ?? pos.instrument;
-  const qty    = Math.abs(pos.units).toLocaleString();
+function IbkrPositionRow({ pos }: { pos: IbkrPosition }) {
+  const isLong = pos.position > 0;
+  const label  = pos.pair ?? pos.symbol;
+  const qty    = Math.abs(pos.position).toLocaleString();
   const isJpy  = label.includes("JPY");
-  const cost   = pos.price != null ? pos.price.toFixed(isJpy ? 3 : 5) : null;
+  const cost   = pos.avg_cost != null ? pos.avg_cost.toFixed(isJpy ? 3 : 5) : null;
 
   return (
     <div

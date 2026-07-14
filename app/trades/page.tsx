@@ -45,23 +45,13 @@ export default function TradesPage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [now, setNow] = useState(Date.now());
   const [prices, setPrices] = useState(INITIAL_PRICES);
-  const [oandaPrices, setOandaPrices] = useState<Record<string, number>>({});
-  const [oandaUnrealizedPnl, setOandaUnrealizedPnl] = useState<number | null>(null);
   const fetchData = useCallback(async () => {
-    const [s, t, oa] = await Promise.all([
+    const [s, t] = await Promise.all([
       fetch("/api/trades?type=signals").then((r) => r.json()),
       fetch("/api/trades?type=all").then((r) => r.json()),
-      fetch("/api/oanda").then((r) => r.json()).catch(() => null),
     ]);
     setSignals(s);
     setTrades(t);
-    if (oa && !oa.error) {
-      if (oa.prices && Object.keys(oa.prices).length > 0) {
-        setOandaPrices(oa.prices);
-      }
-      const unrealVal = parseFloat(oa.account?.unrealizedPL ?? "");
-      if (!isNaN(unrealVal)) setOandaUnrealizedPnl(unrealVal);
-    }
   }, []);
 
   useEffect(() => {
@@ -88,8 +78,6 @@ export default function TradesPage() {
   const pending = signals.filter((s) => !s.executed);
   const open = trades.filter((t) => t.status === "OPEN");
   const closed = trades.filter((t) => t.status === "CLOSED");
-  const hasOanda = Object.keys(oandaPrices).length > 0;
-
   return (
     <div className="p-6 space-y-6">
       <div>
@@ -121,8 +109,7 @@ export default function TradesPage() {
         ) : (
           <TradeTable
             trades={open}
-            prices={hasOanda ? { ...prices, ...oandaPrices } : prices}
-            oandaUnrealizedPnl={hasOanda ? oandaUnrealizedPnl : null}
+            prices={prices}
           />
         )}
       </Section>
@@ -276,26 +263,9 @@ function SignalCard({ signal, now }: { signal: Signal; now: number }) {
   );
 }
 
-function TradeTable({ trades, showClose, prices, oandaUnrealizedPnl }: { trades: Trade[]; showClose?: boolean; prices?: Record<string, number>; oandaUnrealizedPnl?: number | null }) {
+function TradeTable({ trades, showClose, prices }: { trades: Trade[]; showClose?: boolean; prices?: Record<string, number> }) {
   return (
     <div className="overflow-x-auto">
-      {oandaUnrealizedPnl != null && !showClose && (
-        <div
-          className="flex items-center justify-between mb-3 px-3 py-2 rounded-lg text-xs"
-          style={{
-            background: oandaUnrealizedPnl >= 0 ? "rgba(0,255,136,0.06)" : "rgba(255,51,102,0.06)",
-            border: `1px solid ${oandaUnrealizedPnl >= 0 ? "rgba(0,255,136,0.15)" : "rgba(255,51,102,0.15)"}`,
-          }}
-        >
-          <span style={{ color: "var(--text-muted)" }}>OANDA Unrealized P&L</span>
-          <span
-            className="font-bold font-mono tabular-nums"
-            style={{ color: oandaUnrealizedPnl >= 0 ? "var(--green)" : "var(--red)" }}
-          >
-            {formatAED(oandaUnrealizedPnl, { sign: true })}
-          </span>
-        </div>
-      )}
       <table className="w-full text-xs">
         <thead>
           <tr style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>
