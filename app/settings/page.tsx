@@ -223,10 +223,16 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Field({ label, value, placeholder, type = "text", onChange }: {
   label: string; value: string; placeholder?: string; type?: string; onChange: (v: string) => void;
 }) {
+  const isNumeric = type === "number";
   return (
     <div>
       <label className="block text-xs mb-1.5" style={{ color: "var(--text-muted)" }}>{label}</label>
-      <input type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)}
+      <input
+        type="text"
+        inputMode={isNumeric ? "decimal" : undefined}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-xl px-4 py-2.5 text-sm outline-none"
         style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
         onFocus={(e) => (e.target.style.borderColor = "var(--accent)")}

@@ -141,7 +141,7 @@ export default function Dashboard() {
   const pnlPositive = pnl >= 0;
   const balance = parseFloat(stats?.balance ?? "10000");
   const winRate = parseFloat(stats?.winRate ?? "0");
-  const activeSessions = now ? getActiveSessions(now.getUTCHours()) : [];
+  const activeSessions = getActiveSessions(now?.getUTCHours() ?? 0);
 
   const unrealizedPnl = openTrades.reduce((sum, t) => {
     const pairKey = t.pair.length === 6 ? t.pair.slice(0, 3) + "/" + t.pair.slice(3) : t.pair;
@@ -287,7 +287,7 @@ export default function Dashboard() {
                   className="flex-1 transition-colors"
                   style={{
                     background: color,
-                    opacity: now && h === now.getUTCHours() ? 1 : sessions.length > 0 ? 0.3 : 0.1,
+                    opacity: h === (now?.getUTCHours() ?? -1) ? 1 : sessions.length > 0 ? 0.3 : 0.1,
                   }}
                 />
               );
