@@ -205,7 +205,7 @@ function initSchema(db: Database.Database) {
     paper_balance:              "10000",
     imessage_target:            "",
     webhook_secret:             "",
-    risk_per_trade:             "2",
+    risk_per_trade:             "2", // intentional default — 2% risk per trade
     default_lot_size:           "0.1",
     strategy_enabled:           "false",
     strategy_pairs:             "EURUSD,GBPUSD",
